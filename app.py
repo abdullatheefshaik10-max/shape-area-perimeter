@@ -2,25 +2,23 @@ import streamlit as st
 import cv2
 import numpy as np
 from PIL import Image
-import math
 
-st.set_page_config(page_title="Universal Geometry Shape Detector", layout="wide")
-st.title("🔶 Universal Geometry Shape Detector")
-st.write("Detects all common geometric shapes using contour & feature analysis")
+st.set_page_config(page_title="Shape & Contour Analyzer", layout="wide")
+st.title("Shape & Contour Analyzer (Stable Version)")
+st.write("Precise detection for clean geometric images")
 
 uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
 
 def classify_shape(cnt):
+    shape = "Unknown"
+
     peri = cv2.arcLength(cnt, True)
     approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
     vertices = len(approx)
 
     area = cv2.contourArea(cnt)
-    hull = cv2.convexHull(cnt)
-    hull_area = cv2.contourArea(hull)
-    solidity = area / hull_area if hull_area > 0 else 0
-
-    shape = "Unknown"
+    if area < 500:
+        return None
 
     # TRIANGLE
     if vertices == 3:
@@ -29,33 +27,34 @@ def classify_shape(cnt):
     # QUADRILATERALS
     elif vertices == 4:
         x, y, w, h = cv2.boundingRect(approx)
-        aspect_ratio = w / float(h)
+        ar = w / float(h)
 
-        if 0.95 <= aspect_ratio <= 1.05:
+        if 0.90 <= ar <= 1.10:
             shape = "Square / Diamond"
-        elif solidity < 0.9:
-            shape = "Trapezium"
-        else:
+        elif ar > 1.2:
             shape = "Rectangle"
+        else:
+            shape = "Trapezium"
 
     # POLYGONS
     elif vertices == 5:
         shape = "Pentagon"
+
     elif vertices == 6:
         shape = "Hexagon"
-    elif vertices == 7:
-        shape = "Heptagon"
-    elif vertices == 8:
-        shape = "Octagon"
 
-    # CURVED & COMPLEX SHAPES
-    elif vertices > 8:
-        if solidity < 0.8:
-            shape = "Star / Irregular Shape"
+    # CIRCLE & STAR
+    else:
+        hull = cv2.convexHull(cnt)
+        hull_area = cv2.contourArea(hull)
+        solidity = area / hull_area if hull_area != 0 else 0
+
+        if solidity < 0.85:
+            shape = "Star"
         else:
-            shape = "Circle / Ellipse"
+            shape = "Circle"
 
-    return shape, vertices
+    return shape
 
 if uploaded_file:
     image = Image.open(uploaded_file)
@@ -64,6 +63,7 @@ if uploaded_file:
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
+
     _, thresh = cv2.threshold(
         blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
     )
@@ -76,12 +76,12 @@ if uploaded_file:
     results = []
 
     for i, cnt in enumerate(contours):
-        area = cv2.contourArea(cnt)
-        if area < 300:
+        shape = classify_shape(cnt)
+        if shape is None:
             continue
 
-        shape, vertices = classify_shape(cnt)
-        perimeter = cv2.arcLength(cnt, True)
+        peri = cv2.arcLength(cnt, True)
+        area = cv2.contourArea(cnt)
 
         M = cv2.moments(cnt)
         cx = int(M["m10"] / M["m00"]) if M["m00"] != 0 else 0
@@ -98,21 +98,22 @@ if uploaded_file:
             2
         )
 
-        results.append([i + 1, shape, vertices, round(area, 2), round(perimeter, 2)])
+        results.append([i + 1, shape, round(area, 2), round(peri, 2)])
 
     col1, col2 = st.columns(2)
 
     with col1:
         st.subheader("Detected Shapes")
-        st.image(cv2.cvtColor(output, cv2.COLOR_BGR2RGB), use_column_width=True)
+        st.image(cv2.cvtColor(output, cv2.COLOR_BGR2RGB),
+                 use_column_width=True)
 
     with col2:
-        st.subheader("Shape Measurements")
+        st.subheader("Results")
         st.table(
-            [["ID", "Shape", "Vertices", "Area", "Perimeter"]] + results
+            [["ID", "Shape", "Area", "Perimeter"]] + results
         )
 
-    st.success(f"Total Objects Detected: {len(results)}")
+    st.success(f"Total Shapes Detected: {len(results)}")
 
 else:
-    st.info("Upload an image to detect geometric shapes")
+    st.info("Upload a clean geometric image to begin detection")
